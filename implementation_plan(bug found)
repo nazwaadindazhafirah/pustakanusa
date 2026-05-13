@@ -1,0 +1,449 @@
+# Bug Audit & Code Review — Manajemen E-book (Admin Role)
+
+Analisis menyeluruh terhadap fitur Manajemen E-book pada role Admin, meliputi backend (Laravel API) dan frontend (React + Vite). Dokumen ini mengidentifikasi semua bug, inkonsistensi data, dan masalah keamanan yang ditemukan.
+
+---
+
+## User Review Required
+
+> [!CAUTION]
+> **Keamanan Kritis:** Password disimpan dalam plaintext di database (tanpa hashing). Ini adalah kerentanan keamanan yang sangat serius. Apakah ini memang disengaja untuk fase development, atau perlu diperbaiki sekarang?
+
+> [!IMPORTANT]
+> **Semua API route TIDAK dilindungi middleware auth.** Siapa saja bisa CRUD semua data tanpa login. Apakah ini perlu diperbaiki sekarang, atau ditunda?
+
+## Open Questions
+
+1. **Field mismatch `deskripsi` vs `description`:** Frontend mengirim `description` saat create, tapi backend mengharapkan `deskripsi`. Mana yang menjadi nama field yang benar?
+2. **Field `isbn`, `jumlah_halaman`, `tahun_terbit`, `tanggal_input`:** Frontend mengirim field-field ini saat create, tapi tabel `ebooks` dan model `Ebook` tidak punya kolom-kolom tersebut. Apakah field ini perlu ditambahkan ke database?
+3. **Kategori dropdown di BookModal:** Saat ini hardcoded 8 kategori statis di dropdown. Prop `kategori` dari backend sudah diterima tapi **tidak digunakan**. Apakah cukup diperbaiki untuk menggunakan data dinamis dari backend?
+4. **Fungsi Edit E-book:** `handleSaveBook` hanya melakukan `POST` (create). Tidak ada logika `PUT` (update). Apakah fitur edit perlu berfungsi penuh?
+5. **Cover image upload:** Cover `onChange` hanya menyimpan nama file ke `coverName` state, **tidak menyimpan File object ke `coverImage` state.** Akibatnya cover tidak pernah ter-upload. Konfirmasi apakah ini perlu diperbaiki?
+
+---
+
+## Bug yang Ditemukan
+
+### 🔴 Severity: CRITICAL
+
+---
+
+#### BUG-01: Field Name Mismatch — `description` vs `deskripsi`
+
+**Lokasi:** [AdminDashboard.tsx](file:///c:/laragon/www/pustakanusates/pustakanusates-main/src/app/pages/AdminDashboard.tsx#L399) → [EbookController.php](file:///c:/laragon/www/pustakanusates/pustakanusa-backend/app/Http/Controllers/Api/EbookController.php#L28)
+
+**Problem:** Frontend mengirim `formData.append("description", ...)` (L399), tapi backend memvalidasi field `deskripsi` (L28) dan model `Ebook` fillable juga `deskripsi`. Akibatnya:
+- Validasi backend gagal karena `deskripsi` wajib (`required`) tapi tidak ada di request
+- Atau jika tidak ada validasi error (karena data lain lengkap), field `deskripsi` kosong di DB
+
+**Fix:** Ubah frontend dari `description` → `deskripsi`, atau sebaliknya.
+
+---
+
+#### BUG-02: Frontend Mengirim Field yang Tidak Ada di Database
+
+**Lokasi:** [AdminDashboard.tsx](file:///c:/laragon/www/pustakanusates/pustakanusates-main/src/app/pages/AdminDashboard.tsx#L400-L401) → [create_ebooks_table](file:///c:/laragon/www/pustakanusates/pustakanusa-backend/database/migrations/2026_05_01_000001_create_ebooks_table.php)
+
+**Problem:** Frontend mengirim field-field berikut yang **tidak ada** di tabel `ebooks`:
+- `isbn` (L400) → tidak ada kolom di migration
+- `jumlah_halaman` (L401) → tidak ada kolom di migration
+- `tahun_terbit` (L402) → tidak ada kolom di migration
+- `tanggal_input` (L405-406) → tidak ada kolom di migration
+
+Field-field ini juga tidak ada di `$fillable` pada model Ebook, sehingga silently di-ignore oleh Eloquent (mass assignment protection).
+
+**Fix:** Tambahkan kolom-kolom ini ke migration + model, ATAU hapus dari frontend.
+
+---
+
+#### BUG-03: Cover Image Tidak Pernah Ter-upload
+
+**Lokasi:** [AdminDashboard.tsx](file:///c:/laragon/www/pustakanusates/pustakanusates-main/src/app/pages/AdminDashboard.tsx#L2228)
+
+**Problem:** Input file cover `onChange` handler:
+```tsx
+onChange={e => setCoverName(e.target.files?.[0]?.name || null)}
+```
+Hanya menyimpan **nama file** ke `coverName` state. **Tidak pernah menyimpan File object ke `coverImage` state** (`setCoverImage` tidak pernah dipanggil). Akibatnya `coverImage` selalu `null`, dan cover image tidak pernah dikirim ke backend meskipun user sudah memilih file.
+
+**Fix:** Ubah handler menjadi:
+```tsx
+onChange={e => {
+  const file = e.target.files?.[0];
+  setCoverName(file?.name || null);
+  setCoverImage(file || null);
+}}
+```
+
+---
+
+#### BUG-04: Edit E-book Tidak Berfungsi (Hanya POST, Tidak Ada PUT)
+
+**Lokasi:** [AdminDashboard.tsx](file:///c:/laragon/www/pustakanusates/pustakanusates-main/src/app/pages/AdminDashboard.tsx#L385-L443)
+
+**Problem:** `handleSaveBook` selalu melakukan `POST /api/ebooks` (create baru). Tidak ada logika kondisional untuk `PUT /api/ebooks/{id}` ketika `editBook` memiliki data. Saat admin klik "Edit" pada e-book yang sudah ada, yang terjadi adalah **membuat entry baru** alih-alih mengupdate entry lama.
+
+**Fix:** Tambahkan kondisi `if (editBook) { PUT } else { POST }`.
+
+---
+
+#### BUG-05: Tidak Ada Middleware Auth di API Routes
+
+**Lokasi:** [api.php](file:///c:/laragon/www/pustakanusates/pustakanusa-backend/routes/api.php#L19-L23)
+
+**Problem:** Semua API resource routes (`ebooks`, `categories`, `users`, `suggestions`, `logs`) tidak memiliki middleware `auth:sanctum`. Artinya **siapa saja** bisa:
+- Membuat, mengedit, menghapus e-book
+- Membuat, mengedit, menghapus user
+- Membaca semua data user (termasuk password plaintext karena BUG-06)
+
+**Fix:** Bungkus routes CRUD admin di dalam `Route::middleware('auth:sanctum')->group(...)`.
+
+---
+
+#### BUG-06: Password Disimpan Plaintext
+
+**Lokasi:** [AuthController.php](file:///c:/laragon/www/pustakanusates/pustakanusa-backend/app/Http/Controllers/Api/AuthController.php#L28) + [User.php](file:///c:/laragon/www/pustakanusates/pustakanusa-backend/app/Models/User.php#L49)
+
+**Problem:**
+- `AuthController::login()` membandingkan password langsung: `->where('password', $request->password)` — tanpa `Hash::check()`
+- `User` model: komentar `❌ password hashing DIHAPUS` pada casts — password tidak di-hash saat disimpan
+- `UserController::store()` menyimpan password raw: `'password' => $request->password ?? '123456'`
+
+Ini adalah **kerentanan keamanan kritis**. Password semua user terekspos dalam plaintext.
+
+---
+
+### 🟠 Severity: HIGH
+
+---
+
+#### BUG-07: `toggleBookStatus` Mengirim Status yang Salah ke Backend
+
+**Lokasi:** [AdminDashboard.tsx](file:///c:/laragon/www/pustakanusates/pustakanusates-main/src/app/pages/AdminDashboard.tsx#L486-L487)
+
+**Problem:** Frontend meng-compute status baru:
+```tsx
+const nextStatus = target.status === "active" ? "dipinjam" : "tersedia";
+```
+Lalu mengirim `{ status: nextStatus }` ke `PUT /api/ebooks/{id}`.
+
+Namun EbookController `update()` memvalidasi `'status' => 'nullable|in:tersedia,dipinjam'` — ini benar. Tapi di frontend, book objects menggunakan `status: "active" | "inactive"` (dari `Book` interface). Mapping-nya:
+- `"active"` → kirim `"dipinjam"` (❌ **terbalik!** seharusnya kirim `"tersedia"` karena sedang active)
+- Wait, let me re-read... `target.status === "active"` → `nextStatus = "dipinjam"` → ini artinya toggle dari active ke non-active, yang logis. Tapi masalahnya di `fetchEbooks` mapping:
+
+```tsx
+status: b.status === 'tersedia' ? "active" : "inactive"
+```
+
+Jadi `tersedia` = `active`, `dipinjam` = `inactive`. Toggle dari `active` → kirim `dipinjam` (nonaktifkan). Ini **benar logikanya**.
+
+**Namun**, konsep ebook seharusnya **tidak menggunakan status "dipinjam"** karena ini e-book digital (bukan buku fisik). Status `dipinjam` tidak relevan untuk e-book. Ini masalah desain.
+
+**Fix:** Ganti enum status menjadi `tersedia`/`tidak_tersedia` atau `active`/`inactive`.
+
+---
+
+#### BUG-08: `toggleKategoriStatus` Mengirim Field `status` yang Tidak Exist di Tabel `categories`
+
+**Lokasi:** [AdminDashboard.tsx](file:///c:/laragon/www/pustakanusates/pustakanusates-main/src/app/pages/AdminDashboard.tsx#L494-L503)
+
+**Problem:** Frontend memanggil `axios.put('/api/categories/{id}', { status: nextStatus })`, tapi tabel `categories` **hanya memiliki kolom** `id`, `nama_kategori`, `slug`, `timestamps`. Tidak ada kolom `status`.
+
+Ini berarti:
+- Backend `CategoryController::update()` menerima `status` tapi Eloquent silently ignore karena tidak ada di `$fillable` dan tidak ada kolom-nya
+- Status toggle di frontend **hanya berdampak lokal** (setelah re-fetch, status akan selalu `true` karena default mapping)
+
+**Fix:** Tambahkan kolom `status` ke migration `categories` + model fillable, ATAU hapus fitur toggle status kategori.
+
+---
+
+#### BUG-09: `toggleUserStatus` Mengirim Field `status` yang Tidak Exist di Tabel `users`
+
+**Lokasi:** [AdminDashboard.tsx](file:///c:/laragon/www/pustakanusates/pustakanusates-main/src/app/pages/AdminDashboard.tsx#L469-L480)
+
+**Problem:** Sama seperti BUG-08, tabel `users` tidak punya kolom `status`. Frontend mengirim `{ status: nextStatus }` ke `PUT /api/users/{id}`, tapi backend tidak punya kolom ini. Toggle status user hanya efek sementara di memori.
+
+**Fix:** Tambahkan kolom `status` ke migration users + model fillable, ATAU hapus fitur toggle.
+
+---
+
+#### BUG-10: Laporan Filter Kategori Menggunakan `k.id` alih-alih `k.name`
+
+**Lokasi:** [AdminDashboard.tsx](file:///c:/laragon/www/pustakanusates/pustakanusates-main/src/app/pages/AdminDashboard.tsx#L1668-L1671)
+
+**Problem:** Di LaporanView, dropdown kategori meng-set value `k.id`:
+```tsx
+<option value={k.id}>{k.name}</option>
+```
+Tapi filter logic membandingkan dengan `b.category` (yang berisi **nama kategori**, bukan ID):
+```tsx
+const matchKat = !ebFilterKat || b.category === ebFilterKat;
+```
+Hasilnya: filter kategori di laporan **tidak pernah match** karena membandingkan ID ("1") dengan nama ("Teknik Informatika").
+
+**Fix:** Gunakan `<option value={k.name}>` atau ubah filter logic.
+
+---
+
+#### BUG-11: Kategori Dropdown di BookModal Hardcoded — Tidak Menggunakan Data Backend
+
+**Lokasi:** [AdminDashboard.tsx](file:///c:/laragon/www/pustakanusates/pustakanusates-main/src/app/pages/AdminDashboard.tsx#L2186-L2191)
+
+**Problem:** BookModal menerima prop `kategori` dari backend, tapi dropdown kategori masih hardcoded:
+```tsx
+{["Teknik Informatika", "Sistem Informasi", "Manajemen", ...].map(c => (
+  <option key={c} value={c}>{c}</option>
+))}
+```
+Ini berarti:
+- Kategori yang admin tambahkan via "Manajemen Kategori" **tidak muncul** di form tambah e-book
+- Category yang dikirim ke backend adalah **nama** ("Teknik Informatika"), bukan `category_id` (number), sehingga backend validasi `'category_id' => 'required|exists:categories,id'` **akan gagal**
+
+**Fix:** Render dropdown dari prop `kategori`, dan kirim `category_id` (ID) bukan nama.
+
+---
+
+#### BUG-12: `handleSaveBook` Mengirim `category` (nama) sebagai `category_id`
+
+**Lokasi:** [AdminDashboard.tsx](file:///c:/laragon/www/pustakanusates/pustakanusates-main/src/app/pages/AdminDashboard.tsx#L397)
+
+**Problem:** 
+```tsx
+formData.append("category_id", bookData.category);
+```
+`bookData.category` berisi nama kategori (string, e.g., "Teknik Informatika"). Backend mengharapkan integer ID (`exists:categories,id`). Validasi **akan selalu gagal** → e-book tidak bisa disimpan.
+
+**Fix:** BookModal harus menyimpan dan mengirim `category_id` (integer), bukan nama.
+
+---
+
+### 🟡 Severity: MEDIUM
+
+---
+
+#### BUG-13: `addLog` Melakukan Fetch Semua User Setiap Dipanggil
+
+**Lokasi:** [AdminDashboard.tsx](file:///c:/laragon/www/pustakanusates/pustakanusates-main/src/app/pages/AdminDashboard.tsx#L238-L253)
+
+**Problem:** Setiap kali `addLog()` dipanggil (saat tambah/hapus/edit buku, user, kategori, dll.), fungsi ini melakukan `GET /api/users` untuk mencari user_id dari admin yang login. Ini:
+- Tidak efisien (multiple unnecessary API calls)
+- Rawan gagal (jika network error, log tidak tercatat)
+- User ID seharusnya sudah tersimpan di auth context/localStorage
+
+**Fix:** Simpan user ID saat login, dan gunakan langsung tanpa re-fetch.
+
+---
+
+#### BUG-14: Pagination `<Pagination>` Component Diletakkan di Luar `<tbody>` di KategoriView
+
+**Lokasi:** [AdminDashboard.tsx](file:///c:/laragon/www/pustakanusates/pustakanusates-main/src/app/pages/AdminDashboard.tsx#L1432-L1433)
+
+**Problem:** Di `KategoriView`, component `<Pagination>` ditempatkan **di dalam `<table>` tapi di luar `<tbody>`**:
+```tsx
+<table className="w-full">
+  <thead>...</thead>
+  <tbody>...</tbody>
+  <Pagination ... />  // ← Di dalam <table> tapi bukan valid HTML
+</table>
+```
+Ini menghasilkan invalid HTML dan bisa menyebabkan rendering issues.
+
+**Fix:** Pindahkan `<Pagination>` ke luar `<table>`.
+
+---
+
+#### BUG-15: `deskripsi` / `synopsis` Field Mismatch antara Frontend Display & Backend
+
+**Problem:** 
+- Backend menyimpan field `deskripsi`
+- Frontend `Book` interface menggunakan `synopsis`
+- `fetchEbooks` mapping **tidak meng-map** `b.deskripsi` → `synopsis`
+- Akibatnya di BookDetailModal, `book.synopsis` selalu `undefined`
+
+**Fix:** Tambahkan mapping `synopsis: b.deskripsi || ''` di `fetchEbooks`.
+
+---
+
+#### BUG-16: `fetchEbooks` Tidak Memetakan Semua Field yang Dibutuhkan UI
+
+**Lokasi:** [AdminDashboard.tsx](file:///c:/laragon/www/pustakanusates/pustakanusates-main/src/app/pages/AdminDashboard.tsx#L169-L180)
+
+**Problem:** Mapping dari API response ke `Book` interface kehilangan banyak field:
+- `language` → tidak di-map (UI menampilkan `undefined`)
+- `isbn` → tidak di-map
+- `pages` → tidak di-map
+- `synopsis` → tidak di-map (lihat BUG-15)
+- `tanggalMasuk` → tidak di-map (sorting by `tanggalMasuk` akan broken)
+
+Ini membuat BookDetailModal menampilkan data kosong/undefined untuk field-field tersebut.
+
+**Fix:** Map semua field dari API response, atau tambahkan kolom yang belum ada di DB.
+
+---
+
+#### BUG-17: `storage:link` Mungkin Belum Dijalankan
+
+**Problem:** File upload disimpan ke disk `public` (`storage/app/public/ebooks/...`), dan frontend mengakses via `http://127.0.0.1:8000/storage/...`. Namun `.env` menunjukkan `FILESYSTEM_DISK=local` (default). Jika `php artisan storage:link` belum dijalankan, symlink `public/storage → storage/app/public` belum ada, sehingga semua uploaded file (PDF & cover) **tidak bisa diakses** dari browser.
+
+**Fix:** Jalankan `php artisan storage:link`.
+
+---
+
+#### BUG-18: CORS Mungkin Memblokir Request dari Frontend
+
+**Problem:** Frontend berjalan di Vite dev server (port 5173) dan backend di Laravel (port 8000). Perlu memastikan `config/cors.php` mengizinkan origin frontend. Belum diverifikasi apakah CORS sudah dikonfigurasi dengan benar.
+
+---
+
+### 🟢 Severity: LOW
+
+---
+
+#### BUG-19: Inconsistent API URL — `localhost` vs `127.0.0.1`
+
+**Problem:** `EbookReader.jsx` menggunakan `http://localhost:8000/...` sedangkan `AdminDashboard.tsx` menggunakan `http://127.0.0.1:8000/...`. Meskipun biasanya equivalent, ini bisa menyebabkan CORS issues jika browser menganggapnya sebagai origin berbeda.
+
+**Fix:** Standardisasi ke satu URL, idealnya gunakan env variable.
+
+---
+
+#### BUG-20: KPI Dashboard Menggunakan Data Statis Hardcoded
+
+**Problem:** KPI cards di dashboard (`KPI_BY_YEAR`, `CHART_DATA_BY_YEAR`, `MONTHLY_BY_YEAR`) menggunakan data hardcoded, bukan data real dari database. Dashboard menampilkan "Total E-book: 15" padahal database mungkin hanya memiliki 2 e-book.
+
+**Fix:** Buat endpoint API untuk aggregate statistics, atau hitung dari data yang sudah di-fetch.
+
+---
+
+#### BUG-21: EbookReader Component Tidak Digunakan di Routes
+
+**Problem:** `EbookReader.jsx` ada di `/src/components/` tapi tidak di-import atau digunakan di `routes.tsx`. Komponen ini orphan/dead code.
+
+---
+
+#### BUG-22: BookModal Tidak Menutup Setelah Error
+
+**Problem:** Jika save gagal (catch block di `handleSaveBook`), modal tetap terbuka tapi tidak ada indikasi yang jelas selain toast error. User bisa berulang kali submit form yang salah.
+
+---
+
+## Proposed Changes
+
+Perubahan diurutkan berdasarkan prioritas (CRITICAL → HIGH → MEDIUM).
+
+---
+
+### Backend — Database Migration
+
+#### [NEW] Migration: Add missing columns
+
+Tambahkan kolom-kolom berikut ke tabel yang membutuhkan:
+
+**Tabel `ebooks`:**
+- `isbn` (string, nullable)
+- `jumlah_halaman` (integer, nullable, default 0)
+- `tahun_terbit` (string/year, nullable)
+- `tanggal_input` (date, nullable)
+- `bahasa` (string, nullable, default 'Indonesia')
+- Ubah `status` enum → `tersedia` / `tidak_tersedia`
+
+**Tabel `categories`:**
+- `status` (boolean, default true)
+
+**Tabel `users`:**
+- `status` (boolean, default true)
+
+---
+
+### Backend — EbookController
+
+#### [MODIFY] [EbookController.php](file:///c:/laragon/www/pustakanusates/pustakanusa-backend/app/Http/Controllers/Api/EbookController.php)
+
+- `store()`: Update validasi untuk menerima field baru (`isbn`, `jumlah_halaman`, `tahun_terbit`, `tanggal_input`, `bahasa`)
+- `store()`: Field `deskripsi` tetap sebagai nama resmi (frontend yang harus menyesuaikan)
+- `update()`: Pastikan semua field baru juga bisa di-update
+- `index()`: Tambahkan `withCount` atau aggregate jika perlu
+
+---
+
+### Backend — Model
+
+#### [MODIFY] [Ebook.php](file:///c:/laragon/www/pustakanusates/pustakanusa-backend/app/Models/Ebook.php)
+
+- Tambahkan field baru ke `$fillable`: `isbn`, `jumlah_halaman`, `tahun_terbit`, `tanggal_input`, `bahasa`
+
+#### [MODIFY] [Category.php](file:///c:/laragon/www/pustakanusates/pustakanusa-backend/app/Models/Category.php)
+
+- Tambahkan `status` ke `$fillable`
+
+#### [MODIFY] [User.php](file:///c:/laragon/www/pustakanusates/pustakanusa-backend/app/Models/User.php)
+
+- Tambahkan `status` ke `$fillable`
+
+---
+
+### Backend — Routes & Auth
+
+#### [MODIFY] [api.php](file:///c:/laragon/www/pustakanusates/pustakanusa-backend/routes/api.php)
+
+- Bungkus admin CRUD routes dengan `auth:sanctum` middleware
+- Biarkan `GET ebooks` dan `GET categories` tetap public (untuk user browsing)
+
+---
+
+### Frontend — AdminDashboard
+
+#### [MODIFY] [AdminDashboard.tsx](file:///c:/laragon/www/pustakanusates/pustakanusates-main/src/app/pages/AdminDashboard.tsx)
+
+**Fixes yang akan diterapkan:**
+
+| Bug ID | Fix |
+|--------|-----|
+| BUG-01 | Ubah `description` → `deskripsi` di `handleSaveBook` |
+| BUG-02 | Update field names sesuai migration baru |
+| BUG-03 | Tambahkan `setCoverImage(file)` di cover onChange handler |
+| BUG-04 | Tambahkan logika `PUT` untuk edit di `handleSaveBook` |
+| BUG-10 | Ubah `<option value={k.id}>` → `<option value={k.name}>` di LaporanView |
+| BUG-11 | Render kategori dropdown dari prop `kategori` di BookModal |
+| BUG-12 | Kirim `category_id` (ID) bukan nama ke backend |
+| BUG-13 | Simpan user ID saat login, gunakan langsung di `addLog` |
+| BUG-14 | Pindahkan `<Pagination>` ke luar `<table>` di KategoriView |
+| BUG-15 | Map `b.deskripsi` → `synopsis` di `fetchEbooks` |
+| BUG-16 | Map semua missing fields di `fetchEbooks` |
+| BUG-19 | Standardisasi API URL |
+
+---
+
+## Verification Plan
+
+### Automated Tests
+
+```bash
+# Backend — Jalankan migration
+cd pustakanusa-backend
+php artisan migrate
+
+# Backend — Pastikan server berjalan
+php artisan serve
+
+# Backend — Test API endpoints
+# POST ebook (create)
+# PUT ebook (update)
+# DELETE ebook
+# GET ebooks (list)
+
+# Frontend — Build check
+cd pustakanusates-main
+npm run build
+```
+
+### Manual Verification (Browser)
+
+1. **Tambah E-book:** Verifikasi form submit berhasil dengan semua field (judul, penulis, deskripsi, cover, PDF, kategori dari backend)
+2. **Edit E-book:** Verifikasi data lama ter-load di form dan update berhasil via PUT
+3. **Hapus E-book:** Verifikasi delete berhasil dan file storage terhapus
+4. **Toggle Status E-book:** Verifikasi status berubah dan persisten setelah refresh
+5. **Kategori Dropdown:** Verifikasi dropdown menampilkan kategori dari backend
+6. **BookDetailModal:** Verifikasi semua field (ISBN, halaman, synopsis, bahasa) tampil dengan benar
+7. **Laporan Filter Kategori:** Verifikasi filter kategori berfungsi
+8. **Cover Upload:** Verifikasi gambar cover berhasil ter-upload dan ditampilkan
