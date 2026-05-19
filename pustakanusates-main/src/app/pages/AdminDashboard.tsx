@@ -217,22 +217,40 @@ const [monthlyData, setMonthlyData] = useState([]);
   };
 
   const fetchLogs = async () => {
-    try {
-      const res = await axios.get("http://127.0.0.1:8000/api/logs");
-      if (res.data.success) {
-        const mapped = res.data.data.map((l: any) => ({
-          id: l.id,
-          actor: l.user?.name || "Sistem",
-          action: l.action,
-          detail: l.detail || "-",
-          time: new Date(l.created_at).toLocaleString("id-ID"),
-          type: "update", // asumsikan default, atau parsing action
-          kategori: l.kategori || "Sistem"
-        }));
-        setAdminLogs(mapped);
-      }
-    } catch(err) { console.error(err); }
-  };
+  try {
+
+    const res = await axios.get("http://127.0.0.1:8000/api/logs");
+
+    console.log("LOG ADMIN:", res.data);
+
+    const mapped = res.data.data.map((l: any) => ({
+
+      id: l.id,
+
+      actor: l.user?.name || "Sistem",
+
+      // 🔥 INI YANG DIPERBAIKI
+      action: l.aktivitas,
+
+      // 🔥 INI JUGA
+      detail: l.keterangan || "-",
+
+      time: new Date(l.created_at).toLocaleString("id-ID"),
+
+      type: "update",
+
+      kategori: "Sistem"
+
+    }));
+
+    setAdminLogs(mapped);
+
+  } catch (err) {
+
+    console.error("GAGAL AMBIL LOG:", err);
+
+  }
+};
   const fetchDashboard = async () => {
   try {
     const res = await axios.get("http://127.0.0.1:8000/api/dashboard");
@@ -567,19 +585,54 @@ const fetchMonthly = async () => {
   };
 
   const updateSaranStatus = async (id: string, newStatus: string) => {
-    const saranItem = saranList.find((s) => s.id === id);
-    try {
-      await axios.put(`http://127.0.0.1:8000/api/suggestions/${id}`, { status: newStatus });
-      fetchSuggestions();
-      addLog({ actor: adminName, action: `memperbarui status saran`, detail: `"${saranItem?.judul || ""}" → ${newStatus}`, type: "update", kategori: "Sistem" });
-      if (newStatus === "Diterima") {
-        toast.success(`Saran diterima! Notifikasi terkirim ke pengguna: "Saran buku Anda telah diterima dan akan segera tersedia!"`);
-      } else {
-        toast.success(`Status berhasil diperbarui → "${newStatus}".`);
+
+  const saranItem = saranList.find((s) => s.id === id);
+
+  try {
+
+    // 🔥 UBAH STATUS JADI HURUF KECIL
+    const statusFix = newStatus;
+
+    await axios.put(
+      `http://127.0.0.1:8000/api/suggestions/${id}`,
+      {
+        status: statusFix
       }
-    } catch(err) { toast.error("Gagal mengupdate saran."); }
-    setShowSaranStatusModal(null);
-  };
+    );
+
+    fetchSuggestions();
+
+    addLog({
+      actor: adminName,
+      action: `memperbarui status saran`,
+      detail: `"${saranItem?.judul || ""}" → ${statusFix}`,
+      type: "update",
+      kategori: "Sistem"
+    });
+
+    if (statusFix === "Diterima") {
+
+  toast.success(
+    `Saran diterima!`
+  );
+
+} else {
+
+  toast.success(
+    `Status berhasil diperbarui → "${statusFix}".`
+  );
+}
+
+  } catch(err) {
+
+    console.error(err);
+
+    toast.error("Gagal mengupdate saran.");
+
+  }
+
+  setShowSaranStatusModal(null);
+};
 
   // Bulk actions
   const handleBulkDeleteUsers = async () => {

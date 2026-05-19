@@ -29,5 +29,7 @@ Route::post('/download', [EbookController::class, 'download']);
 Route::get('/riwayat-unduhan', [EbookController::class, 'riwayat']);
 Route::get('/dashboard', [DashboardController::class, 'index']);
 Route::get('/dashboard/monthly', [DashboardController::class, 'monthly']);
+Route::post('/logs', [LogController::class, 'store']);
 Route::get('/logs', [LogController::class, 'index']);
+
 

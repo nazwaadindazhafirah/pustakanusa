@@ -8,15 +8,24 @@ use Illuminate\Http\Request;
 
 class SuggestionController extends Controller
 {
+    // =========================
+    // TAMPILKAN SEMUA SARAN
+    // =========================
     public function index()
     {
-        $suggestions = Suggestion::with('user')->orderBy('created_at', 'desc')->get();
+        $suggestions = Suggestion::with('user')
+            ->orderBy('created_at', 'desc')
+            ->get();
+
         return response()->json([
             'success' => true,
             'data' => $suggestions
         ]);
     }
 
+    // =========================
+    // SIMPAN SARAN BARU
+    // =========================
     public function store(Request $request)
     {
         $request->validate([
@@ -25,7 +34,12 @@ class SuggestionController extends Controller
             'pesan' => 'required|string',
         ]);
 
-        $suggestion = Suggestion::create($request->all());
+        $suggestion = Suggestion::create([
+            'user_id' => $request->user_id,
+            'subjek' => $request->subjek,
+            'pesan' => $request->pesan,
+            'status' => 'menunggu'
+        ]);
 
         return response()->json([
             'success' => true,
@@ -34,25 +48,26 @@ class SuggestionController extends Controller
         ], 201);
     }
 
-    public function update(Request $request, string $id)
-    {
-        $request->validate([
-            'status' => 'required|in:Menunggu,Ditinjau,Ditolak,Diterima'
-        ]);
+    // =========================
+    // UPDATE STATUS SARAN
+    // =========================
+  public function update(Request $request, string $id)
+{
+    return response()->json([
+        'success' => true,
+        'id' => $id,
+        'status_dikirim' => $request->status,
+        'semua_data' => $request->all()
+    ]);
+}
 
-        $suggestion = Suggestion::findOrFail($id);
-        $suggestion->update(['status' => $request->status]);
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Status saran berhasil diperbarui',
-            'data' => $suggestion
-        ]);
-    }
-
+    // =========================
+    // HAPUS SARAN
+    // =========================
     public function destroy(string $id)
     {
         $suggestion = Suggestion::findOrFail($id);
+
         $suggestion->delete();
 
         return response()->json([
