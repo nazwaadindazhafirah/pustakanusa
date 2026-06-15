@@ -19,11 +19,12 @@ class DashboardController extends Controller
             'saran' => Suggestion::count(),
         ]);
     }
-   public function monthly()
+  public function monthly()
 {
-    $data = \DB::table('downloads')
+    $monthly = DB::table('downloads')
         ->selectRaw("
-            DATE_FORMAT(created_at, '%b %Y') as month,
+            YEAR(created_at) as tahun,
+            MONTH(created_at) as bulan,
             COUNT(DISTINCT ebook_id) as buku,
             COUNT(*) as unduh,
             COUNT(*) as user
@@ -32,8 +33,6 @@ class DashboardController extends Controller
         ->orderByRaw("YEAR(created_at), MONTH(created_at)")
         ->get();
 
-    return response()->json([
-        'data' => $data
-    ]);
+    return response()->json($monthly);
 }
 }

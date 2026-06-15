@@ -21,7 +21,6 @@ import { useTheme } from "../context/ThemeContext";
 import { ThemeToggle } from "../components/ThemeToggle";
 import { useAuth } from "../context/AuthContext";
 import { useBooks } from "../context/BookContext";
-import { CATEGORIES } from "../data/books";
 import axios from "axios";
 import logo from "../../imports/Tak_berjudul3_20260429090610.png";
 import libraryBg1 from "../../imports/LibraryBackground.jpg";
@@ -33,6 +32,7 @@ export function UserDashboard() {
   const { user, logout } = useAuth();
   const { saranList, favoriteSet, toggleFavorite } = useBooks();
   const [allBooks, setAllBooks] = useState<any[]>([]);
+  const [categories, setCategories] = useState<string[]>([]);
   const navigate = useNavigate();
 
   const [searchQuery, setSearchQuery] = useState("");
@@ -74,6 +74,17 @@ export function UserDashboard() {
       })
       .catch(error => console.error("Error fetching ebooks:", error));
   }, []);
+  useEffect(() => {
+  axios.get("http://127.0.0.1:8000/api/categories")
+    .then((res) => {
+      if (res.data.success) {
+        setCategories(
+          res.data.data.map((c: any) => c.nama_kategori)
+        );
+      }
+    })
+    .catch((err) => console.log(err));
+}, []);
 
   // Load persisted read notification IDs from localStorage
   useEffect(() => {
@@ -476,7 +487,7 @@ export function UserDashboard() {
                     Semua Kategori
                     {!selectedCategory && <Check className="w-4 h-4 text-[#4475F2]" />}
                   </button>
-                  {CATEGORIES.map((cat) => (
+                  {categories.map((cat) => (
                     <button
                       key={cat}
                       onClick={() => { setSelectedCategory(cat); setVisibleCount(ITEMS_PER_PAGE); setFilterOpen(false); }}

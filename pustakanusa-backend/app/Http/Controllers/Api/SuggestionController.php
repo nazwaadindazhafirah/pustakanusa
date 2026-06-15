@@ -51,14 +51,29 @@ class SuggestionController extends Controller
     // =========================
     // UPDATE STATUS SARAN
     // =========================
-  public function update(Request $request, string $id)
+ public function update(Request $request, string $id)
 {
-    return response()->json([
-        'success' => true,
-        'id' => $id,
-        'status_dikirim' => $request->status,
-        'semua_data' => $request->all()
-    ]);
+    try {
+
+        $suggestion = Suggestion::findOrFail($id);
+
+        $suggestion->status = strtolower($request->status);
+
+        $suggestion->save();
+
+        return response()->json([
+            'success' => true,
+            'data' => $suggestion
+        ]);
+
+    } catch (\Exception $e) {
+
+        return response()->json([
+            'error' => $e->getMessage(),
+            'line' => $e->getLine(),
+            'file' => $e->getFile()
+        ], 500);
+    }
 }
 
     // =========================

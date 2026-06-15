@@ -57,6 +57,10 @@ import { useAuth } from "../context/AuthContext";
 import { useBooks, type SaranItem } from "../context/BookContext";
 import { type Book } from "../data/books";
 import axios from "axios";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
+import * as XLSX from "xlsx";
+import { saveAs } from "file-saver";
 // @ts-ignore
 import logo from "../../imports/Tak_berjudul3_20260429090610.png";
 // @ts-ignore
@@ -590,8 +594,10 @@ const fetchMonthly = async () => {
 
   try {
 
-    // 🔥 UBAH STATUS JADI HURUF KECIL
     const statusFix = newStatus;
+
+    console.log("ID =", id);
+    console.log("STATUS =", statusFix);
 
     await axios.put(
       `http://127.0.0.1:8000/api/suggestions/${id}`,
@@ -1724,7 +1730,127 @@ function LaporanView({ isDark, surface, textPrimary, textMuted, borderColor, boo
     transition: "color 0.15s, border-color 0.15s",
     fontSize: "0.9rem",
   } as React.CSSProperties);
+  
+const exportPDF = () => {
+  const doc = new jsPDF();
 
+  const img = new Image();
+  img.src = logo;
+
+  img.onload = () => {
+    // Logo
+   doc.addImage(img, "PNG", 15, 10, 22, 22);
+
+    // Header
+    doc.setFontSize(20);
+    doc.setTextColor(41, 98, 255);
+    doc.text("PUSTAKANUSA", 45, 20);
+
+    doc.setFontSize(12);
+    doc.setTextColor(100);
+    doc.text("Sistem Informasi Perpustakaan Digital", 45, 28);
+
+    // Judul Laporan
+    doc.setFontSize(16);
+    doc.setTextColor(0);
+    doc.text("LAPORAN INVENTARIS E-BOOK", 14, 50);
+
+    // Info laporan
+    doc.setFontSize(10);
+    doc.text(
+      `Tanggal Cetak : ${new Date().toLocaleDateString("id-ID")}`,
+      14,
+      58
+    );
+
+    doc.text(
+      `Admin : Administrator`,
+      120,
+      58
+    );
+
+    // Garis
+    doc.setDrawColor(41, 98, 255);
+    doc.setLineWidth(0.5);
+    doc.line(14, 65, 195, 65);
+
+    // Statistik
+    doc.setFontSize(11);
+    doc.text(`Total Koleksi : ${filteredBooks.length}`, 14, 75);
+
+    // Tabel
+    autoTable(doc, {
+      startY: 82,
+      head: [["Judul Buku", "Kategori", "Penulis", "Tanggal"]],
+      body: filteredBooks.map((b: any) => [
+        b.title,
+        b.category,
+        b.author,
+        b.tanggalMasuk,
+      ]),
+      headStyles: {
+        fillColor: [41, 98, 255],
+      },
+      styles: {
+        fontSize: 10,
+      },
+    });
+
+    // Footer
+    const pageCount = doc.getNumberOfPages();
+
+    for (let i = 1; i <= pageCount; i++) {
+      doc.setPage(i);
+
+      doc.setFontSize(9);
+      doc.setTextColor(120);
+
+      doc.text(
+        `PustakaNusa © ${new Date().getFullYear()}`,
+        14,
+        290
+      );
+
+      doc.text(
+        `Halaman ${i} dari ${pageCount}`,
+        170,
+        290
+      );
+    }
+
+    doc.save("laporan-ebook.pdf");
+  };
+};
+
+const exportExcel = () => {
+  const data = filteredBooks.map((b: any) => ({
+    Judul: b.title,
+    Kategori: b.category,
+    Penulis: b.author,
+    Tanggal: b.tanggalMasuk,
+    Status: b.status,
+  }));
+
+  const ws = XLSX.utils.json_to_sheet(data);
+  const wb = XLSX.utils.book_new();
+
+  XLSX.utils.book_append_sheet(
+    wb,
+    ws,
+    "Laporan EBook"
+  );
+
+  const excelBuffer = XLSX.write(wb, {
+    bookType: "xlsx",
+    type: "array",
+  });
+
+  const file = new Blob([excelBuffer], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
+
+  saveAs(file, "laporan-ebook.xlsx");
+};
   return (
     <div className="space-y-6">
       {/* Page Header */}
@@ -1737,20 +1863,34 @@ function LaporanView({ isDark, surface, textPrimary, textMuted, borderColor, boo
         </div>
         {/* Cetak Laporan */}
         <div className="flex items-center gap-3">
+         <button
+  onClick={exportPDF}
+  className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm transition-all hover:opacity-90 active:scale-95"
+  style={{
+    backgroundColor: isDark ? "#2D0D0D" : "#FFF5F5",
+    color: "#EF4444",
+    border: "1.5px solid #EF4444",
+    fontWeight: 700,
+    fontFamily: "'Plus Jakarta Sans', sans-serif"
+  }}
+>
+  <Printer className="w-4 h-4" />
+  Download PDF
+</button>
           <button
-            onClick={() => toast("Laporan PDF sedang dibuat…", { icon: "📄", style: { backgroundColor: isDark ? "#1E293B" : "#FFF5F5", color: "#EF4444" } })}
-            className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm transition-all hover:opacity-90 active:scale-95"
-            style={{ backgroundColor: isDark ? "#2D0D0D" : "#FFF5F5", color: "#EF4444", border: "1.5px solid #EF4444", fontWeight: 700, fontFamily: "'Plus Jakarta Sans', sans-serif" }}
-          >
-            <Printer className="w-4 h-4" /> Download PDF
-          </button>
-          <button
-            onClick={() => toast("Laporan Excel sedang dibuat…", { icon: "📊", style: { backgroundColor: isDark ? "#1E293B" : "#F0FFF4", color: "#22C55E" } })}
-            className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm transition-all hover:opacity-90 active:scale-95"
-            style={{ backgroundColor: isDark ? "#0D2D1A" : "#F0FFF4", color: "#22C55E", border: "1.5px solid #22C55E", fontWeight: 700, fontFamily: "'Plus Jakarta Sans', sans-serif" }}
-          >
-            <FileSpreadsheet className="w-4 h-4" /> Download Excel
-          </button>
+  onClick={exportExcel}
+  className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm transition-all hover:opacity-90 active:scale-95"
+  style={{
+    backgroundColor: isDark ? "#0D2D1A" : "#F0FFF4",
+    color: "#22C55E",
+    border: "1.5px solid #22C55E",
+    fontWeight: 700,
+    fontFamily: "'Plus Jakarta Sans', sans-serif"
+  }}
+>
+  <FileSpreadsheet className="w-4 h-4" />
+  Download Excel
+</button>
         </div>
       </div>
 
@@ -1924,9 +2064,12 @@ function LaporanView({ isDark, surface, textPrimary, textMuted, borderColor, boo
       {activeTab === "saran" && (
         <>
           {/* Saran Summary Cards */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             {(["Menunggu", "Ditinjau", "Diterima", "Ditolak"] as const).map((status) => {
-              const count = (saranList as any[]).filter((s: any) => s.status === status).length;
+  const count = (saranList as any[]).filter(
+    (s: any) =>
+      s.status?.toLowerCase() === status.toLowerCase()
+  ).length;
               const style = SARAN_STATUS_STYLE[status];
               return (
                 <div key={status} className="p-5 rounded-2xl" style={{ backgroundColor: surface, border: `1px solid ${borderColor}`, boxShadow: isDark ? "0 4px 20px rgba(0,0,0,0.2)" : "0 4px 20px rgba(0,0,0,0.04)" }}>

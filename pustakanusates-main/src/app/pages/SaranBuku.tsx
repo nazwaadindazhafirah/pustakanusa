@@ -90,9 +90,10 @@ export function SaranBuku() {
             s.created_at
           ).toLocaleDateString("id-ID"),
 
-          status:
-            s.status.charAt(0).toUpperCase() +
-            s.status.slice(1).toLowerCase(),
+status: s.status
+  ? s.status.charAt(0).toUpperCase() +
+    s.status.slice(1).toLowerCase()
+  : "Menunggu",
 
           catatan: s.pesan,
         }));
@@ -122,7 +123,7 @@ export function SaranBuku() {
     ? "#334155"
     : "#E2E8F0";
 
-  const isAdmin = true;
+  const isAdmin = false;
 
   const mySaran = isAdmin
     ? saranListState
@@ -133,8 +134,8 @@ export function SaranBuku() {
       );
 
   const acceptedSuggestions = mySaran.filter(
-    (s) => s.status === "Diterima"
-  );
+  (s) => s.status?.toLowerCase() === "diterima"
+);
 
   // ===============================
   // SUBMIT
@@ -375,7 +376,54 @@ export function SaranBuku() {
             </p>
           </div>
         )}
+<div
+  className="mb-6 p-5 rounded-2xl"
+  style={{
+    backgroundColor: surface,
+    border: `1px solid ${borderColor}`,
+  }}
+>
+  <h2
+    className="font-bold mb-4"
+    style={{ color: textPrimary }}
+  >
+    Ajukan Saran Buku
+  </h2>
 
+  <div className="space-y-4">
+    <input
+      type="text"
+      placeholder="Judul Buku"
+      value={judul}
+      onChange={(e) => setJudul(e.target.value)}
+      className="w-full p-3 rounded-lg border"
+    />
+
+    <input
+      type="text"
+      placeholder="Nama Penulis"
+      value={penulis}
+      onChange={(e) => setPenulis(e.target.value)}
+      className="w-full p-3 rounded-lg border"
+    />
+
+    <textarea
+      placeholder="Alasan mengusulkan buku ini"
+      value={alasan}
+      onChange={(e) => setAlasan(e.target.value)}
+      className="w-full p-3 rounded-lg border"
+      rows={4}
+    />
+
+    <button
+      onClick={handleSubmit}
+      disabled={loading}
+      className="px-5 py-3 rounded-lg bg-blue-600 text-white"
+    >
+      {loading ? "Mengirim..." : "Kirim Saran"}
+    </button>
+  </div>
+</div>
         {/* TABLE */}
         <div
           className="rounded-2xl overflow-hidden"
@@ -573,7 +621,56 @@ export function SaranBuku() {
             </tbody>
           </table>
         </div>
-      </main>
+            </main>
+
+      {detailSaran && (
+        <div
+          className="fixed inset-0 flex items-center justify-center z-50"
+          style={{
+            background: "rgba(0,0,0,0.5)",
+          }}
+        >
+          <div className="bg-white p-6 rounded-xl w-[500px]">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="font-bold text-lg">
+                Detail Saran Buku
+              </h2>
+
+              <button
+                onClick={() => setDetailSaran(null)}
+              >
+                <X />
+              </button>
+            </div>
+
+            <p>
+              <strong>Judul:</strong>{" "}
+              {detailSaran.judul}
+            </p>
+
+            <p>
+              <strong>Penulis:</strong>{" "}
+              {detailSaran.penulis}
+            </p>
+
+            <p>
+              <strong>Tanggal:</strong>{" "}
+              {detailSaran.tanggal}
+            </p>
+
+            <p>
+              <strong>Status:</strong>{" "}
+              {detailSaran.status}
+            </p>
+
+            <div className="mt-3">
+              <strong>Catatan:</strong>
+              <p>{detailSaran.catatan}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
